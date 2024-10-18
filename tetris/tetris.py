@@ -2,6 +2,7 @@ import pygame
 import random
 import numpy as np
 
+
 SCREEN_WIDTH = 1080
 SCREEN_HEIGHT = 720
 
@@ -22,6 +23,7 @@ colors = [
     (26, 33, 246),
     (129, 26, 246),
 ]
+colors_dict = {i+2: color for i, color in enumerate(colors)}  # reserve 1 for black
 
 shapes = [
     [(0, 1), (1, 1), (1, 0), (2, 0)],  # S-shape
@@ -36,20 +38,15 @@ shapes = [
 ccw_rotation_matrix = np.array([[0, -1], [1, 0]])
 cw_rotation_matrix = np.array([[0, 1], [-1, 0]])
 
-pygame.init()
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-clock = pygame.time.Clock()
-running = True
-
-font = pygame.font.SysFont('cursive', 50)
-font_smaller = pygame.font.SysFont('cursive', 25)
+all_scores = []
 
 
 class Figure:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.color = colors[random.randint(0, len(colors)-1)]
+        self.color_ind = random.randint(2, len(colors)+1)
+        self.color = colors_dict[self.color_ind]
         self.points = shapes[random.randint(0, len(shapes)-1)]
 
 
@@ -58,11 +55,12 @@ class Tetris:
         self.width = width
         self.height = height
         self.grid = [[1 for _ in range(self.width)] for _ in range(self.height)]
-        self.shape = None
+        self.shape: Figure | None = None
         self.next_shape = None
         self.score = 0
         self.game_over = False
         self.new_shape()
+        self.level = 1
 
     def new_shape(self):
         if not self.next_shape:
@@ -79,8 +77,10 @@ class Tetris:
     def draw_grid(self, screen):
         for y, row in enumerate(self.grid):
             for x, cell in enumerate(row):
-                if cell:
-                    pygame.draw.rect(screen, cell, (x * GRID_SIZE + PF_X_POS, y * GRID_SIZE + PF_Y_POS,
+                if cell != 1:
+                    cell = colors_dict[cell]
+
+                pygame.draw.rect(screen, cell, (x * GRID_SIZE + PF_X_POS, y * GRID_SIZE + PF_Y_POS,
                                                     GRID_SIZE - 1, GRID_SIZE - 1))
 
     def draw_shape(self, screen):
@@ -93,16 +93,16 @@ class Tetris:
         for x_, y_ in self.shape.points:
             x = x_ + self.shape.x
             y = y_ + self.shape.y
-            self.grid[y][x] = self.shape.color
+            self.grid[y][x] = self.shape.color_ind
 
     def move(self, key):
         potential_x = self.shape.x
-        if key in [pygame.K_DOWN, pygame.K_s]:
-            self.move_down()
         if key in [pygame.K_LEFT, pygame.K_a]:
             potential_x = self.shape.x - 1
         if key in [pygame.K_RIGHT, pygame.K_d]:
             potential_x = self.shape.x + 1
+        if key in [pygame.K_DOWN, pygame.K_s]:
+            self.move_down()
 
         if self.is_valid_horizontal_move(potential_x):
             self.shape.x = potential_x
@@ -146,16 +146,16 @@ class Tetris:
         return True
 
     def check_and_remove_full_row(self):
-        update_grid = []
-        diff = 0
-        for i, row in enumerate(self.grid):
-            if any([el == 1 for el in row]):
-                update_grid.append(row)
-            else:
-                diff += 1
-                self.score += 1
-        missing_rows = [[1 for _ in range(self.width)] for _ in range(diff)]
-        update_grid = missing_rows + update_grid
+        as_numpy = np.array(self.grid)
+        full_rows = np.where(np.all(as_numpy != 1, axis=1))[0]
+        diff = np.diff(full_rows)
+        bonus = len(np.where(diff == 1)[0])
+        score = len(full_rows) * self.level + bonus
+        self.score += score
+        rows_with_ones = as_numpy[np.any(as_numpy == 1, axis=1)]
+        missing_rows = np.ones((len(full_rows), self.width))
+        update_grid = np.concatenate((missing_rows, rows_with_ones), axis=0)
+        update_grid = update_grid.astype(int).tolist()
         self.grid = update_grid
 
     def rotate(self, clockwise=True):
@@ -172,30 +172,25 @@ class Tetris:
         if not self.is_valid_horizontal_move(self.shape.x):
             self.shape.points = original_shape
 
-    def draw_game_over_screen(self, screen):
+    def draw_game_over_screen(self, screen, font):
         screen.fill((0, 153, 153))
         rect = pygame.Rect((50, 140, SCREEN_WIDTH - 100, SCREEN_HEIGHT - 350))
         pygame.draw.rect(screen, "black", rect)
         pygame.draw.rect(screen, "red", rect, 2)
 
         over = font.render('Game Over', True, "white")
-        msg1 = font.render(f'Score: {self.score}', True, "red")
+        score_msg = font.render(f'This Game Score: {self.score}', True, "red")
+        max_msg = font.render(f'Max Game Score: {max(all_scores)}', True, "red")
+        level_msg = font.render(f'Level: {self.level}', True, "red")
+        new_game = font.render('Press R to start new game', True, "red")
 
         screen.blit(over, (rect.centerx - over.get_width() / 2, rect.y + 20))
-        screen.blit(msg1, (rect.centerx - msg1.get_width() / 2, rect.y + 80))
-
-        shape = np.array(self.shape.points)
-        center = shape.mean(axis=0)
-        centered_points = shape - center
-        for x, y in centered_points:
-            pygame.draw.rect(screen, self.shape.color,
-                             (x * GRID_SIZE + rect.centerx,
-                              y * GRID_SIZE + rect.y+200,
-                              GRID_SIZE - 1, GRID_SIZE - 1))
+        screen.blit(level_msg, (rect.centerx - level_msg.get_width() / 2, rect.y + 80))
+        screen.blit(score_msg, (rect.centerx - score_msg.get_width() / 2, rect.y + 110))
+        screen.blit(max_msg, (rect.centerx - max_msg.get_width() / 2, rect.y + 140))
+        screen.blit(new_game, (rect.centerx - new_game.get_width() / 2, rect.y + 170))
 
     def draw_next_shape(self, screen):
-    #     next_shape = font_smaller.render('Next shape: ', True, "white")
-    #     screen.blit(next_shape, (SCREEN_WIDTH-PF_X_POS + 50, PF_Y_POS + 10))
         for x, y in self.next_shape.points:
             pygame.draw.rect(screen, self.next_shape.color,
                              (x * GRID_SIZE + SCREEN_WIDTH-PF_X_POS + 50,
@@ -203,39 +198,65 @@ class Tetris:
                               GRID_SIZE - 1, GRID_SIZE - 1))
 
 
-game = Tetris(PLAY_FIELD_GRID_WIDTH, PLAY_FIELD_GRID_HEIGHT)
-counter = 0
-while running:
-    screen.fill((0, 153, 153))
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    clock = pygame.time.Clock()
+    running = True
 
-    counter += 1
-    if counter >= 10:
-        game.move_down()
-        counter = 0
+    font = pygame.font.SysFont('cursive', 50)
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN:
-            game.move(event.key)
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:
-                game.rotate(clockwise=False)
-            else:
-                game.rotate()
+    LEVEL_UP = pygame.USEREVENT + 1
+    pygame.time.set_timer(LEVEL_UP, 15000)
 
-    game.draw_grid(screen)
-    game.draw_shape(screen)
-    game.draw_next_shape(screen)
-    game.check_and_remove_full_row()
+    game = Tetris(PLAY_FIELD_GRID_WIDTH, PLAY_FIELD_GRID_HEIGHT)
+    level_up_threshold = 700
+    last_move_time = pygame.time.get_ticks()
 
-    score = font.render(f'SCORE: {game.score}', True, "white")
-    screen.blit(score, (250 - score.get_width() // 2, SCREEN_HEIGHT - 110))
+    while running:
+        screen.fill((0, 153, 153))
 
-    if game.game_over:
-        game.draw_game_over_screen(screen)
+        current_time = pygame.time.get_ticks()
+        if current_time - last_move_time > level_up_threshold:
+            game.move_down()
+            last_move_time = current_time
 
-    pygame.display.flip()
-    clock.tick(60)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    all_scores.append(game.score)
+                    game = Tetris(PLAY_FIELD_GRID_WIDTH, PLAY_FIELD_GRID_HEIGHT)
+                game.move(event.key)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    game.rotate(clockwise=False)
+                else:
+                    game.rotate()
+            elif event.type == LEVEL_UP and level_up_threshold > 100:
+                level_up_threshold -= 100
+                game.level += 1
 
-pygame.quit()
+        game.draw_grid(screen)
+        game.draw_shape(screen)
+        game.draw_next_shape(screen)
+        game.check_and_remove_full_row()
+
+        score = font.render(f'SCORE: {game.score}', True, "white")
+        screen.blit(score, (250 - score.get_width() // 2, SCREEN_HEIGHT - 210))
+
+        level = font.render(f'LEVEL: {game.level}', True, "white")
+        screen.blit(level, (250 - score.get_width() // 2, SCREEN_HEIGHT - 110))
+
+        if game.game_over:
+            game.draw_game_over_screen(screen, font)
+
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main()
