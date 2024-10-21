@@ -38,7 +38,8 @@ shapes = [
 ccw_rotation_matrix = np.array([[0, -1], [1, 0]])
 cw_rotation_matrix = np.array([[0, 1], [-1, 0]])
 
-all_scores = []
+prev_max_score = 0
+rows_to_level_up = 4
 
 
 class Figure:
@@ -61,6 +62,7 @@ class Tetris:
         self.game_over = False
         self.new_shape()
         self.level = 1
+        self.num_full_rows = 0
 
     def new_shape(self):
         if not self.next_shape:
@@ -148,6 +150,7 @@ class Tetris:
     def check_and_remove_full_row(self):
         as_numpy = np.array(self.grid)
         full_rows = np.where(np.all(as_numpy != 1, axis=1))[0]
+        self.num_full_rows += len(full_rows)
         diff = np.diff(full_rows)
         bonus = len(np.where(diff == 1)[0])
         score = len(full_rows) * self.level + bonus
@@ -180,15 +183,15 @@ class Tetris:
 
         over = font.render('Game Over', True, "white")
         score_msg = font.render(f'This Game Score: {self.score}', True, "red")
-        max_msg = font.render(f'Max Game Score: {max(all_scores)}', True, "red")
+        max_msg = font.render(f'Previous max score: {prev_max_score}', True, "red")
         level_msg = font.render(f'Level: {self.level}', True, "red")
         new_game = font.render('Press R to start new game', True, "red")
 
         screen.blit(over, (rect.centerx - over.get_width() / 2, rect.y + 20))
         screen.blit(level_msg, (rect.centerx - level_msg.get_width() / 2, rect.y + 80))
-        screen.blit(score_msg, (rect.centerx - score_msg.get_width() / 2, rect.y + 110))
-        screen.blit(max_msg, (rect.centerx - max_msg.get_width() / 2, rect.y + 140))
-        screen.blit(new_game, (rect.centerx - new_game.get_width() / 2, rect.y + 170))
+        screen.blit(score_msg, (rect.centerx - score_msg.get_width() / 2, rect.y + 120))
+        screen.blit(max_msg, (rect.centerx - max_msg.get_width() / 2, rect.y + 160))
+        screen.blit(new_game, (rect.centerx - new_game.get_width() / 2, rect.y + 200))
 
     def draw_next_shape(self, screen):
         for x, y in self.next_shape.points:
@@ -199,6 +202,7 @@ class Tetris:
 
 
 def main():
+    global prev_max_score
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
@@ -206,11 +210,11 @@ def main():
 
     font = pygame.font.SysFont('cursive', 50)
 
-    LEVEL_UP = pygame.USEREVENT + 1
-    pygame.time.set_timer(LEVEL_UP, 15000)
+    level_up = pygame.USEREVENT + 1
+    pygame.time.set_timer(level_up, 15000)
 
     game = Tetris(PLAY_FIELD_GRID_WIDTH, PLAY_FIELD_GRID_HEIGHT)
-    level_up_threshold = 700
+    level_up_threshold = 600
     last_move_time = pygame.time.get_ticks()
 
     while running:
@@ -226,17 +230,23 @@ def main():
                 running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
-                    all_scores.append(game.score)
+                    if game.score > prev_max_score:
+                        prev_max_score = game.score
                     game = Tetris(PLAY_FIELD_GRID_WIDTH, PLAY_FIELD_GRID_HEIGHT)
+                elif event.key == pygame.K_SPACE:
+                    while game.is_valid_vertical_move():
+                        game.move_down()
                 game.move(event.key)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     game.rotate(clockwise=False)
                 else:
                     game.rotate()
-            elif event.type == LEVEL_UP and level_up_threshold > 100:
-                level_up_threshold -= 100
-                game.level += 1
+
+        if game.num_full_rows >= rows_to_level_up + game.level and level_up_threshold > 50:
+            level_up_threshold -= 100
+            game.level += 1
+            game.num_full_rows = 0
 
         game.draw_grid(screen)
         game.draw_shape(screen)
