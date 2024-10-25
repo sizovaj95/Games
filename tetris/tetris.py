@@ -25,15 +25,18 @@ colors = [
 ]
 colors_dict = {i+2: color for i, color in enumerate(colors)}  # reserve 1 for black
 
-shapes = [
-    [(0, 1), (1, 1), (1, 0), (2, 0)],  # S-shape
-    [(0, 0), (1, 0), (1, 1), (2, 1)],  # Z-shape
-    [(0, 0), (0, 1), (0, 2), (1, 2)],  # L-shape
-    [(0, 2), (1, 2), (1, 1), (1, 0)],  # J-shape
-    [(0, 1), (1, 1), (1, 0), (0, 0)],  # O-shape
-    [(0, 0), (0, 1), (0, 2), (0, 3)],  # I-shape
-    [(0, 1), (1, 1), (2, 1), (1, 2)],  # T-shape
-]
+shapes = {
+   "S": [[(0, 1), (1, 1), (1, 0), (2, 0)], [(0, 0), (0, 1), (1, 1), (1, 2)]],
+   "Z": [[(0, 0), (1, 0), (1, 1), (2, 1)], [(1, 0), (1, 1), (0, 1), (0, 2)]],
+   "L": [[(0, 0), (0, 1), (0, 2), (1, 2)], [(0, 1), (1, 1), (2, 1), (2, 0)], [(0, 0), (1, 0), (1, 1), (1, 2)],
+         [(0, 0), (1, 0), (2, 0), (0, 1)]],
+   "J": [[(0, 2), (1, 2), (1, 1), (1, 0)], [(0, 1), (0, 2), (1, 2), (2, 2)], [(0, 0), (1, 0), (0, 1), (0, 2)],
+         [(0, 0), (1, 0), (2, 0), (2, 1)]],
+   "O": [[(0, 1), (1, 1), (1, 0), (0, 0)]],
+   "I": [[(0, 0), (0, 1), (0, 2), (0, 3)], [(0, 0), (1, 0), (2, 0), (3, 0)]],
+   "T": [[(0, 1), (1, 1), (2, 1), (1, 2)], [(0, 1), (1, 0), (1, 1), (1, 2)], [(0, 1), (1, 1), (2, 1), (1, 0)],
+         [(2, 1), (1, 0), (1, 1), (1, 2)]]
+          }
 
 ccw_rotation_matrix = np.array([[0, -1], [1, 0]])
 cw_rotation_matrix = np.array([[0, 1], [-1, 0]])
@@ -48,7 +51,13 @@ class Figure:
         self.y = y
         self.color_ind = random.randint(2, len(colors)+1)
         self.color = colors_dict[self.color_ind]
-        self.points = shapes[random.randint(0, len(shapes)-1)]
+        self.shape_ind = random.randint(0, len(shapes)-1)
+        self.shape_name = list(shapes.keys())[self.shape_ind]
+        self.rotation = 0
+        self.points = shapes[self.shape_name][self.rotation]
+
+    def __repr__(self):
+        return f"{self.shape_name}: ({self.x}, {self.y}), rotation {self.rotation}"
 
 
 class Tetris:
@@ -161,19 +170,15 @@ class Tetris:
         update_grid = update_grid.astype(int).tolist()
         self.grid = update_grid
 
-    def rotate(self, clockwise=True):
-        original_shape = self.shape.points
-        shape = np.array(self.shape.points)
-        center = shape.mean(axis=0)
-        centered_points = shape - center
-        if clockwise:
-            rotated = centered_points @ cw_rotation_matrix
-        else:
-            rotated = centered_points @ ccw_rotation_matrix
-        rotated += center
-        self.shape.points = np.floor(rotated).astype(int).tolist()
-        if not self.is_valid_horizontal_move(self.shape.x):
-            self.shape.points = original_shape
+    def rotate(self):
+        self.shape.rotation += 1
+        if self.shape.rotation > len(shapes[self.shape.shape_name]) - 1:
+            self.shape.rotation = 0
+        self.shape.points = shapes[self.shape.shape_name][self.shape.rotation]
+
+        right = max(self.shape.points, key=lambda x: x[0])[0] + self.shape.x
+        if right >= self.width:
+            self.shape.x += right - self.width - 1
 
     def draw_game_over_screen(self, screen, font):
         screen.fill((0, 153, 153))
@@ -236,12 +241,11 @@ def main():
                 elif event.key == pygame.K_SPACE:
                     while game.is_valid_vertical_move():
                         game.move_down()
+                elif event.key == pygame.K_LCTRL:
+                    game.rotate()
                 game.move(event.key)
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    game.rotate(clockwise=False)
-                else:
-                    game.rotate()
+                game.rotate()
 
         if game.num_full_rows >= rows_to_level_up + game.level and level_up_threshold > 50:
             level_up_threshold -= 100
